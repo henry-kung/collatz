@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collatz Conjecture Visualizer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 900px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .description {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        .input-section {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            justify-content: center;
+        }
+
+        input {
+            padding: 12px 20px;
+            border: 2px solid #667eea;
+            border-radius: 10px;
+            font-size: 16px;
+            width: 200px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #764ba2;
+        }
+
+        button {
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            font-weight: 600;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .stat-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: bold;
+        }
+
+        .canvas-container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        canvas {
+            width: 100%;
+            height: 400px;
+            border-radius: 5px;
+        }
+
+        .sequence {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.8;
+            color: #333;
+        }
+
+        .sequence::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .sequence::-webkit-scrollbar-track {
+            background: #e0e0e0;
+            border-radius: 10px;
+        }
+
+        .sequence::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 10px;
+        }
+
+        .error {
+            color: #e74c3c;
+            text-align: center;
+            margin-top: 10px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔢 Collatz Conjecture</h1>
+        <p class="description">
+            Enter a positive integer to visualize its Collatz sequence. The conjecture states that 
+            every sequence eventually reaches 1, following: if n is even, divide by 2; if odd, multiply by 3 and add 1.
+        </p>
+
+        <div class="input-section">
+            <input type="number" id="numberInput" placeholder="Enter a number" min="1" value="27">
+            <button onclick="visualize()">Visualize</button>
+        </div>
+
+        <div id="error" class="error"></div>
+
+        <div id="stats" class="stats" style="display: none;">
+            <div class="stat-box">
+                <div class="stat-label">Starting Number</div>
+                <div class="stat-value" id="startNum">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Steps to 1</div>
+                <div class="stat-value" id="steps">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Max Value</div>
+                <div class="stat-value" id="maxVal">0</div>
+            </div>
+        </div>
+
+        <div class="canvas-container" id="canvasContainer" style="display: none;">
+            <canvas id="chart"></canvas>
+        </div>
+
+        <div class="sequence" id="sequence" style="display: none;"></div>
+    </div>
+
+    <script>
+        function collatzSequence(n) {
+            const sequence = [n];
+            while (n !== 1) {
+                if (n % 2 === 0) {
+                    n = n / 2;
+                } else {
+                    n = 3 * n + 1;
+                }
+                sequence.push(n);
+            }
+            return sequence;
+        }
+
+        function visualize() {
+            const input = document.getElementById('numberInput').value;
+            const errorDiv = document.getElementById('error');
+            const num = parseInt(input);
+
+            errorDiv.textContent = '';
+
+            if (!input || num < 1 || !Number.isInteger(num)) {
+                errorDiv.textContent = 'Please enter a valid positive integer';
+                return;
+            }
+
+            if (num > 1000000) {
+                errorDiv.textContent = 'Please enter a number less than 1,000,000';
+                return;
+            }
+
+            const sequence = collatzSequence(num);
+            const maxValue = Math.max(...sequence);
+
+            document.getElementById('stats').style.display = 'grid';
+            document.getElementById('canvasContainer').style.display = 'block';
+            document.getElementById('sequence').style.display = 'block';
+
+            document.getElementById('startNum').textContent = num;
+            document.getElementById('steps').textContent = sequence.length - 1;
+            document.getElementById('maxVal').textContent = maxValue;
+
+            document.getElementById('sequence').textContent = sequence.join(' → ');
+
+            drawChart(sequence);
+        }
+
+        function drawChart(sequence) {
+            const canvas = document.getElementById('chart');
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+            
+            canvas.width = canvas.offsetWidth * dpr;
+            canvas.height = canvas.offsetHeight * dpr;
+            ctx.scale(dpr, dpr);
+
+            const width = canvas.offsetWidth;
+            const height = canvas.offsetHeight;
+            const padding = 40;
+
+            ctx.clearRect(0, 0, width, height);
+
+            const maxValue = Math.max(...sequence);
+            const xStep = (width - padding * 2) / (sequence.length - 1);
+            const yScale = (height - padding * 2) / maxValue;
+
+            ctx.strokeStyle = '#667eea';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+
+            sequence.forEach((val, i) => {
+                const x = padding + i * xStep;
+                const y = height - padding - val * yScale;
+
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            });
+
+            ctx.stroke();
+
+            ctx.fillStyle = '#764ba2';
+            sequence.forEach((val, i) => {
+                const x = padding + i * xStep;
+                const y = height - padding - val * yScale;
+                ctx.beginPath();
+                ctx.arc(x, y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            ctx.strokeStyle = '#ddd';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(padding, height - padding);
+            ctx.lineTo(width - padding, height - padding);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(padding, padding);
+            ctx.lineTo(padding, height - padding);
+            ctx.stroke();
+
+            ctx.fillStyle = '#666';
+            ctx.font = '12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('0', padding, height - padding + 20);
+            ctx.fillText(sequence.length - 1, width - padding, height - padding + 20);
+
+            ctx.textAlign = 'right';
+            ctx.fillText(maxValue, padding - 10, padding);
+            ctx.fillText('0', padding - 10, height - padding);
+        }
+
+        visualize();
+
+        document.getElementById('numberInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                visualize();
+            }
+        });
+    </script>
+</body>
+</html>
