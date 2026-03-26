@@ -273,6 +273,7 @@
         let chartCtx = null;
         let chartDims = {};
         let lastTimestamp = null;
+        let stepAccumulator = 0;
 
         function visualize() {
             const input = document.getElementById('numberInput').value;
@@ -297,6 +298,7 @@
                 animationId = null;
             }
             lastTimestamp = null;
+            stepAccumulator = 0;
 
             currentSequence = collatzSequence(num);
             const maxValue = Math.max(...currentSequence);
@@ -313,7 +315,7 @@
 
             setupChart(currentSequence);
             animationIndex = 0;
-            animationId = requestAnimationFrame(animate);
+            requestAnimationFrame(animate);
         }
 
         function setupChart(sequence) {
@@ -390,12 +392,14 @@
             // Compute how many steps to draw this frame based on elapsed time
             let batch;
             if (!isFinite(rate)) {
-                batch = seq.length; // instant
+                batch = seq.length; // instant — draw everything
             } else {
                 if (lastTimestamp === null) lastTimestamp = timestamp;
                 const elapsed = (timestamp - lastTimestamp) / 1000; // seconds
                 lastTimestamp = timestamp;
-                batch = Math.max(1, Math.round(elapsed * rate));
+                stepAccumulator += elapsed * rate;
+                batch = Math.floor(stepAccumulator);
+                stepAccumulator -= batch;
             }
 
             // Draw batch of segments
@@ -428,6 +432,7 @@
             // Update live step counter
             document.getElementById('stepCounter').textContent = `Step: ${animationIndex}`;
 
+            animationId = requestAnimationFrame(animate);
         }
 
         function finishAnimation() {
