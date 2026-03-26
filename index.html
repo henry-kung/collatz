@@ -47,11 +47,12 @@
         .input-section {
             display: flex;
             gap: 10px;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             justify-content: center;
+            flex-wrap: wrap;
         }
 
-        input {
+        input[type="number"] {
             padding: 12px 20px;
             border: 2px solid #667eea;
             border-radius: 10px;
@@ -60,7 +61,7 @@
             transition: border-color 0.3s;
         }
 
-        input:focus {
+        input[type="number"]:focus {
             outline: none;
             border-color: #764ba2;
         }
@@ -84,6 +85,33 @@
 
         button:active {
             transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .speed-section {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 30px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .speed-section input[type="range"] {
+            width: 140px;
+            accent-color: #667eea;
+        }
+
+        #speedLabel {
+            display: inline-block;
+            width: 70px;
         }
 
         .stats {
@@ -118,12 +146,27 @@
             padding: 20px;
             margin-bottom: 20px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            position: relative;
         }
 
         canvas {
             width: 100%;
             height: 400px;
             border-radius: 5px;
+        }
+
+        /* live step counter overlay */
+        #stepCounter {
+            position: absolute;
+            top: 28px;
+            right: 28px;
+            background: rgba(102, 126, 234, 0.15);
+            color: #667eea;
+            font-weight: 700;
+            font-size: 13px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            pointer-events: none;
         }
 
         .sequence {
@@ -170,7 +213,14 @@
 
         <div class="input-section">
             <input type="number" id="numberInput" placeholder="Enter a number" min="1" value="27">
-            <button onclick="visualize()">Visualize</button>
+            <button id="visualizeBtn" onclick="visualize()">Visualize</button>
+            <button id="skipBtn" onclick="skipAnimation()" style="display:none">Skip</button>
+        </div>
+
+        <div class="speed-section">
+            <span>Speed:</span>
+            <input type="range" id="speedSlider" min="1" max="5" value="3">
+            <span id="speedLabel">Normal</span>
         </div>
 
         <div id="error" class="error"></div>
@@ -192,12 +242,22 @@
 
         <div class="canvas-container" id="canvasContainer" style="display: none;">
             <canvas id="chart"></canvas>
+            <div id="stepCounter"></div>
         </div>
 
         <div class="sequence" id="sequence" style="display: none;"></div>
     </div>
 
     <script>
+        // Speed slider label mapping
+        const speedLabels = ['Very Slow', 'Slow', 'Normal', 'Fast', 'Very Fast'];
+        // Steps drawn per second at each speed level (last entry = instant/skip)
+        const stepsPerSecond = [10, 30, 60, 300, Infinity];
+
+        document.getElementById('speedSlider').addEventListener('input', function() {
+            document.getElementById('speedLabel').textContent = speedLabels[this.value - 1];
+        });
+
         function collatzSequence(n) {
             const sequence = [n];
             while (n !== 1) {
@@ -210,6 +270,15 @@
             }
             return sequence;
         }
+
+        // Animation state
+        let animationId = null;
+        let currentSequence = [];
+        let animationIndex = 0;
+        let chartCtx = null;
+        let chartDims = {};
+        let lastTimestamp = null;
+        let stepAccumulator = 0;
 
         function visualize() {
             const input = document.getElementById('numberInput').value;
@@ -228,96 +297,196 @@
                 return;
             }
 
-            const sequence = collatzSequence(num);
-            const maxValue = Math.max(...sequence);
+            // Cancel any running animation
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+            lastTimestamp = null;
+            stepAccumulator = 0;
+
+            currentSequence = collatzSequence(num);
+            const maxValue = Math.max(...currentSequence);
 
             document.getElementById('stats').style.display = 'grid';
             document.getElementById('canvasContainer').style.display = 'block';
-            document.getElementById('sequence').style.display = 'block';
+            document.getElementById('sequence').style.display = 'none'; // shown after animation
+            document.getElementById('skipBtn').style.display = '';
+            document.getElementById('visualizeBtn').disabled = true;
 
-            document.getElementById('startNum').textContent = num;
-            document.getElementById('steps').textContent = sequence.length - 1;
-            document.getElementById('maxVal').textContent = maxValue;
+            document.getElementById('startNum').textContent = num.toLocaleString();
+            document.getElementById('steps').textContent = currentSequence.length - 1;
+            document.getElementById('maxVal').textContent = maxValue.toLocaleString();
 
-            document.getElementById('sequence').textContent = sequence.join(' → ');
-
-            drawChart(sequence);
+            setupChart(currentSequence);
+            animationIndex = 0;
+            requestAnimationFrame(animate);
         }
 
-        function drawChart(sequence) {
+        function setupChart(sequence) {
             const canvas = document.getElementById('chart');
-            const ctx = canvas.getContext('2d');
             const dpr = window.devicePixelRatio || 1;
-            
+
             canvas.width = canvas.offsetWidth * dpr;
             canvas.height = canvas.offsetHeight * dpr;
-            ctx.scale(dpr, dpr);
+
+            chartCtx = canvas.getContext('2d');
+            chartCtx.scale(dpr, dpr);
 
             const width = canvas.offsetWidth;
             const height = canvas.offsetHeight;
-            const padding = 40;
-
-            ctx.clearRect(0, 0, width, height);
-
+            const padding = 50;
             const maxValue = Math.max(...sequence);
-            const xStep = (width - padding * 2) / (sequence.length - 1);
+            const xStep = (width - padding * 2) / Math.max(1, sequence.length - 1);
             const yScale = (height - padding * 2) / maxValue;
 
-            ctx.strokeStyle = '#667eea';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
+            chartDims = { width, height, padding, maxValue, xStep, yScale };
 
-            sequence.forEach((val, i) => {
-                const x = padding + i * xStep;
-                const y = height - padding - val * yScale;
+            // Draw axes and labels once
+            drawAxes();
+        }
 
-                if (i === 0) {
-                    ctx.moveTo(x, y);
-                } else {
-                    ctx.lineTo(x, y);
-                }
-            });
-
-            ctx.stroke();
-
-            ctx.fillStyle = '#764ba2';
-            sequence.forEach((val, i) => {
-                const x = padding + i * xStep;
-                const y = height - padding - val * yScale;
-                ctx.beginPath();
-                ctx.arc(x, y, 3, 0, Math.PI * 2);
-                ctx.fill();
-            });
+        function drawAxes() {
+            const { ctx, width, height, padding, maxValue } = { ctx: chartCtx, ...chartDims };
 
             ctx.strokeStyle = '#ddd';
             ctx.lineWidth = 1;
+
+            // X axis
             ctx.beginPath();
             ctx.moveTo(padding, height - padding);
             ctx.lineTo(width - padding, height - padding);
             ctx.stroke();
 
+            // Y axis
             ctx.beginPath();
             ctx.moveTo(padding, padding);
             ctx.lineTo(padding, height - padding);
             ctx.stroke();
 
+            // Labels
             ctx.fillStyle = '#666';
             ctx.font = '12px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText('0', padding, height - padding + 20);
-            ctx.fillText(sequence.length - 1, width - padding, height - padding + 20);
+            ctx.fillText(currentSequence.length - 1, width - padding, height - padding + 20);
 
             ctx.textAlign = 'right';
-            ctx.fillText(maxValue, padding - 10, padding);
-            ctx.fillText('0', padding - 10, height - padding);
+            ctx.fillText(maxValue.toLocaleString(), padding - 8, padding + 4);
+            ctx.fillText('0', padding - 8, height - padding);
+
+            // Axis titles
+            ctx.fillStyle = '#999';
+            ctx.font = '11px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Step', width / 2, height - 4);
         }
 
+        function getPoint(index) {
+            const { padding, height, xStep, yScale } = chartDims;
+            const x = padding + index * xStep;
+            const y = height - padding - currentSequence[index] * yScale;
+            return { x, y };
+        }
+
+        function animate(timestamp) {
+            const speed = parseInt(document.getElementById('speedSlider').value);
+            const rate = stepsPerSecond[speed - 1];
+            const seq = currentSequence;
+
+            // Compute how many steps to draw this frame based on elapsed time
+            let batch;
+            if (!isFinite(rate)) {
+                batch = seq.length; // instant — draw everything
+            } else {
+                if (lastTimestamp === null) lastTimestamp = timestamp;
+                const elapsed = (timestamp - lastTimestamp) / 1000; // seconds
+                lastTimestamp = timestamp;
+                stepAccumulator += elapsed * rate;
+                batch = Math.floor(stepAccumulator);
+                stepAccumulator -= batch;
+            }
+
+            // Draw batch of segments
+            for (let i = 0; i < batch; i++) {
+                if (animationIndex >= seq.length - 1) {
+                    finishAnimation();
+                    return;
+                }
+
+                const from = getPoint(animationIndex);
+                const to = getPoint(animationIndex + 1);
+
+                // Line segment
+                chartCtx.strokeStyle = '#667eea';
+                chartCtx.lineWidth = 2;
+                chartCtx.beginPath();
+                chartCtx.moveTo(from.x, from.y);
+                chartCtx.lineTo(to.x, to.y);
+                chartCtx.stroke();
+
+                // Dot at new point
+                chartCtx.fillStyle = '#764ba2';
+                chartCtx.beginPath();
+                chartCtx.arc(to.x, to.y, 3, 0, Math.PI * 2);
+                chartCtx.fill();
+
+                animationIndex++;
+            }
+
+            // Update live step counter
+            document.getElementById('stepCounter').textContent = `Step: ${animationIndex}`;
+
+            animationId = requestAnimationFrame(animate);
+        }
+
+        function finishAnimation() {
+            animationId = null;
+            document.getElementById('stepCounter').textContent = '';
+            document.getElementById('skipBtn').style.display = 'none';
+            document.getElementById('visualizeBtn').disabled = false;
+            document.getElementById('sequence').style.display = 'block';
+            document.getElementById('sequence').textContent = currentSequence.join(' → ');
+        }
+
+        function skipAnimation() {
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+
+            // Draw remaining points all at once
+            const seq = currentSequence;
+            if (animationIndex < seq.length - 1) {
+                chartCtx.strokeStyle = '#667eea';
+                chartCtx.lineWidth = 2;
+                chartCtx.beginPath();
+                const from = getPoint(animationIndex);
+                chartCtx.moveTo(from.x, from.y);
+                for (let i = animationIndex + 1; i < seq.length; i++) {
+                    const pt = getPoint(i);
+                    chartCtx.lineTo(pt.x, pt.y);
+                }
+                chartCtx.stroke();
+
+                chartCtx.fillStyle = '#764ba2';
+                for (let i = animationIndex + 1; i < seq.length; i++) {
+                    const pt = getPoint(i);
+                    chartCtx.beginPath();
+                    chartCtx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
+                    chartCtx.fill();
+                }
+            }
+
+            animationIndex = seq.length - 1;
+            finishAnimation();
+        }
+
+        // Run on load
         visualize();
 
         document.getElementById('numberInput').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                visualize();
-            }
+            if (e.key === 'Enter') visualize();
         });
     </script>
 </body>
