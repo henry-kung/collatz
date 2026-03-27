@@ -155,6 +155,29 @@
             border-radius: 5px;
         }
 
+        #chartOverlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: calc(100% - 40px);
+            height: 400px;
+            pointer-events: none;
+            border-radius: 5px;
+        }
+
+        #tooltip {
+            display: none;
+            position: absolute;
+            background: rgba(40, 40, 40, 0.88);
+            color: #fff;
+            padding: 6px 11px;
+            border-radius: 7px;
+            font-size: 13px;
+            pointer-events: none;
+            white-space: nowrap;
+            z-index: 10;
+        }
+
         /* live step counter overlay */
         #stepCounter {
             position: absolute;
@@ -242,7 +265,9 @@
 
         <div class="canvas-container" id="canvasContainer" style="display: none;">
             <canvas id="chart"></canvas>
+            <canvas id="chartOverlay"></canvas>
             <div id="stepCounter"></div>
+            <div id="tooltip"></div>
         </div>
 
         <div class="sequence" id="sequence" style="display: none;"></div>
@@ -325,10 +350,13 @@
 
         function setupChart(sequence) {
             const canvas = document.getElementById('chart');
+            const overlay = document.getElementById('chartOverlay');
             const dpr = window.devicePixelRatio || 1;
 
             canvas.width = canvas.offsetWidth * dpr;
             canvas.height = canvas.offsetHeight * dpr;
+            overlay.width = canvas.width;
+            overlay.height = canvas.height;
 
             chartCtx = canvas.getContext('2d');
             chartCtx.scale(dpr, dpr);
@@ -480,6 +508,75 @@
 
             animationIndex = seq.length - 1;
             finishAnimation();
+        }
+
+        // Hover tooltip
+        document.getElementById('canvasContainer').addEventListener('mousemove', onChartHover);
+        document.getElementById('canvasContainer').addEventListener('mouseleave', onChartLeave);
+
+        function onChartHover(e) {
+            if (!currentSequence.length || animationId) return;
+
+            const canvas = document.getElementById('chart');
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+
+            const { padding, width, height, xStep } = chartDims;
+            if (mouseX < padding || mouseX > width - padding) {
+                onChartLeave();
+                return;
+            }
+
+            const index = Math.max(0, Math.min(
+                Math.round((mouseX - padding) / xStep),
+                currentSequence.length - 1
+            ));
+            const pt = getPoint(index);
+
+            // Draw crosshair on overlay
+            const overlay = document.getElementById('chartOverlay');
+            const dpr = window.devicePixelRatio || 1;
+            const ctx = overlay.getContext('2d');
+            ctx.clearRect(0, 0, overlay.width, overlay.height);
+            ctx.save();
+            ctx.scale(dpr, dpr);
+
+            ctx.strokeStyle = 'rgba(102, 126, 234, 0.35)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(pt.x, padding);
+            ctx.lineTo(pt.x, height - padding);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            ctx.fillStyle = '#667eea';
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.restore();
+
+            // Position tooltip near cursor, keeping it inside the container
+            const containerRect = document.getElementById('canvasContainer').getBoundingClientRect();
+            const tx = e.clientX - containerRect.left;
+            const ty = e.clientY - containerRect.top;
+            const tooltip = document.getElementById('tooltip');
+            tooltip.textContent = `Step ${index}: ${currentSequence[index].toLocaleString()}`;
+            tooltip.style.display = 'block';
+            const ttw = tooltip.offsetWidth;
+            const left = tx + 14 + ttw > containerRect.width ? tx - ttw - 14 : tx + 14;
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = (ty - 18) + 'px';
+        }
+
+        function onChartLeave() {
+            const overlay = document.getElementById('chartOverlay');
+            overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
+            document.getElementById('tooltip').style.display = 'none';
         }
 
         // Run on load
